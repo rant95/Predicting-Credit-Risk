@@ -1,0 +1,1571 @@
+---
+title: "Predicting Credit Risk  "
+subtitle: "German dataset"
+author: 'L.RANT '
+date: "`r format(Sys.time(),'%d %B, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    theme: lumen
+    code_folding: hide
+---
+
+# 1 Introduction
+
+L’objet de ce document est de montrer comment mettre en oeuvre les méthodes présentées dans la section pré-traitement. Nous appliquerons ces méthodes sur les données German Credit à l’aide du logiciel Rstudio.
+
+Après avoir importé les données à l’aide du logiciel, nous donnerons un aperçu général du jeu données puis développerons la partie exploratoire. A la suite de cette exploration, nous envisagerons différentes façons de prétraiter les données puis nous ferons une prédiction pour accorder ou non un credit avec differents algorithmes.
+
+# 2 Importation des données
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(FactoMineR)
+library(e1071)#naives bayes
+library(rattle)  # Fancy tree plot
+library(rpart)#classifer Tree
+library(kableExtra)#tableau
+```
+
+
+```{r }
+setwd("C:/Users/lnzb7292/Downloads/STA211")
+don<-read.table("C:/Users/lnzb7292/Downloads/STA211/german.data",sep=" ")
+#don<-read.table("C:/Users/lnzb7292/Downloads/STA211/credit-german.txt",sep='\t', header=TRUE)
+
+str(don)
+```
+La commande str permet d’avoir un rapide aperçu des données importées.
+
+On constate que les noms des variables, comme ceux de leurs modalités (pour les variables qualitatives) ne sont pas du tout explicites. A partir du descriptif des données (disponible ici), on renomme les différentes variables et les modalités.
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# Modification des noms des variables
+colnames(don)<-c(
+  "Status",
+  "Duration",
+  "History",
+  "Purpose",
+  "Credit.Amount",
+  "Savings account/bonds",
+  "Length.of.current.employment",
+  "Instalment.per.cent",
+  "Sex.Marital.Status",
+  "Guarantors",
+  "Duration.in.Current.address",
+  "Property",
+  "Age.years",
+  "Other.installment.plans",
+  "Housing",
+  "No.of.Credits.at.this.Bank",
+  "Job",
+  "No.of.dependents"
+  ,"Telephone",                      
+ "Foreign.Worker",
+ "Creditability")
+
+# Modification des noms des modalit?s des variables qualitatives
+levels(don$Status)<-c("lt.0","0.to.200","gt.200","none")
+
+levels(don$History)<-c("noCredit.allPaid","thisBank.AllPaid","paidDuly","delay","critical")
+
+levels(don$Purpose)<-c("NewCar", "UsedCar", "Other","Furniture.Equipment", "Radio.Television", 
+"DomesticAppliance", "Repairs", "Education", "Retraining", 
+"Business")
+
+levels(don$`Savings account/bonds`)<-c("lt.100", "100.to.500", "500.to.1000", "gt.1000", "Unknown"
+)
+
+levels(don$Length.of.current.employment)<-c("lt.1", "1.to.4", "4.to.7", "gt.7", "Unemployed")
+
+levels(don$Sex.Marital.Status)<-c("Male.Divorced.Seperated", "Female.NotSingle", "Male.Single", 
+"Male.Married.Widowed")
+
+levels(don$Guarantors)<-c("None", "CoApplicant", "Guarantor")
+
+levels(don$Property)<-c("RealEstate", "Insurance", "CarOther", "Unknown")
+
+levels(don$Other.installment.plans)<-c("Bank", "Stores", "None")
+
+levels(don$Housing)<-c("Rent", "Own", "ForFree")
+
+levels(don$Job)<-c("UnemployedUnskilled", "UnskilledResident", "SkilledEmployee", 
+"Management.SelfEmp.HighlyQualified")
+
+levels(don$Foreign.Worker)<-c("yes","no")
+
+levels(don$Telephone)<-c("none","yes")
+```
+
+On modifie également le type de certaines variables
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#Codage des variables quantitatives en type "numeric" (plutot que "integer")
+don$Duration<-as.numeric(don$Duration)
+don$Credit.Amount<-as.numeric(don$Credit.Amount)
+don$Age.years<-as.numeric(don$Age.years)
+
+#Codage de la variable r?ponse en type "factor"
+don$Creditability<-as.factor(don[,"Creditability"])
+levels(don$Creditability)<-c("good","bad")
+```
+
+# 3 Aperçu général
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#nombre d'individus et variables
+dim(don)
+```
+
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#nature des variables
+table(sapply(don,class))
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#variables qualitatives
+var.factor<-which(sapply(don,class)=="factor")
+names(var.factor)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#variables quantitatives
+var.numeric<-which(sapply(don,class)=="numeric"|sapply(don,class)=="integer")
+names(var.numeric)
+```
+# 4 Exploration
+## 4.1 Analyse univariée
+### 4.1.1 Variables quantitatives
+#### 4.1.1.1 Indicateurs statistiques
+```{r }
+
+# chargement de la librarie
+library(stargazer)
+
+# affichage de quelques indicateurs statistiques pour variables quantitatives
+stargazer(don,summary.stat=c("n","min","p25","median","mean","p75","max","sd"),type = "text")
+```
+On peut remarquer qu’aucune des variables n’est constante. De telles variables n’auraient en effet aucun intérêt pour l’analyse.
+
+# 4.1.1.2 Représentations graphiques
+
+On commence par visualiser les distributions marginales des variables via des diagrammes en barres et des histogrammes. Les variables Duration, Credit.Amount et Age.years ayant un grand nombre de valeurs distinctes, on les représentera via des histogrammes.
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#diagrammes en barres
+varbarplot<-c("Instalment.per.cent", "Duration.in.Current.address", "No.of.Credits.at.this.Bank", "No.of.dependents")
+mapply(don[,varbarplot],
+       FUN=function(xx,name){barplot(table(xx),main=name)},
+       name=varbarplot)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#histogrammes
+varhist<-var.numeric[!names(var.numeric)%in%varbarplot]
+mapply(don[,varhist],
+       FUN=function(xx,name){hist(xx,main=name)},
+       name=varhist)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+library(car)
+mapply(don[,varhist],
+       FUN=function(xx,name){Boxplot(xx,main=name,id.n=2,ylab="")},
+       name=names(varhist))
+```
+Bien que différentes valeurs semblent relativement élevées, il est difficile de prendre dès à présent la décision de gérer ces valeurs (par exemple en les considérant comme manquantes et en les imputant). Ce choix pourra être fait a posteriori si nécessaire.
+
+### 4.1.2 Variables qualitatives
+
+On repère des modalités rares via les diagrammes en barres (on pourrait de façon équivalente visualiser cette information sous forme de tableaux)
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+mapply(don[,var.factor],
+       FUN=function(xx,name){barplot(table(xx),main=name,horiz = TRUE,las=2,xlim=c(0,1000))},
+       name=names(var.factor))
+```
+En fonction de la distribution de la variable réponse au sein de chaque modalité définie par ces variables, il pourra pertinent ou non d’effectuer certains regroupements. On aura besoin pour cela d’effectuer une analyse bivariée.
+
+## 4.2 Analyse bivariée
+
+Etant dans un cas de classification supervisée, nous distinguons l’analyse bivariée des couples mettant en jeu la variable réponse, de celle des couples ne portant que sur des variables explicatives.
+
+### 4.2.1 Lien entre variables explicatives et variable réponse
+####4.2.1.1 Linéarité
+
+Afin d’identifier la nature du lien entre les variables quantitatives et la réponse, on représente la proportion de bons payeurs en fonction des variables quantitatives. Ce type d’analyse dans le cas d’une variable explicative continue nécessitera d’effectuer une discrétisation.
+
+On commence par identifier le lien entre la variable Creditability et la variable Duration.
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#calcul de la proportion de bons payeurs pour chaque valeur de la durée de credit
+cont.table<-table(don$Duration,don$Creditability)
+prof.lignes<-prop.table(cont.table,1)
+
+
+
+
+#calcul des bornes de l'intervalle de confiance associee
+res.binom.test<-mapply(cont.table[,1],
+                       FUN=binom.test,
+                       n=rowSums(cont.table),
+                       SIMPLIFY = FALSE)
+ci<-sapply(res.binom.test,"[[","conf.int")
+
+# repr?sentation des proportions en fonction de la dur?e de credit
+# (coloration en fonction du nombre d'obervations pour la dur?e consid?ree)
+abscisses<-as.numeric(rownames(prof.lignes))
+col<-gray.colors(184,.95,0)[rowSums(cont.table)]
+
+# affichage des proportions
+plot(abscisses,
+     prof.lignes[,1],
+     pch=16,
+     col=col,
+     xlab="Durée du crédit",
+     ylab="Proportion de bons payeurs")
+
+# affichage des intervalles de confiance
+for(ii in 1:length(abscisses)){
+  segments(x0=abscisses[ii],
+           y0=ci[1,ii],
+           x1=abscisses[ii],
+           y1=ci[2,ii],
+           col=col[ii])
+}
+```
+Sur ce graphique, un point est d’autant plus noir que le nombre d’individus utilisés pour déterminer la proportion correspondante est grande. Les points les plus noirs sont donc ceux avec les intervalles de confiance les plus courts.
+
+On voit que la proportion de bons payeurs décroît de façon relativement linéaire avec la durée du Crédit. On recommence pour la variable Age en effectuant au préalable une discrétisation en 20 classes.
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+ordrequantiles<-seq(0,1,1/20)
+Age.years.new<-cut(don$Age.years,breaks = quantile(don$Age.years,probs = ordrequantiles))
+
+
+cont.table<-table(Age.years.new,don$Creditability)
+prof.lignes<-prop.table(cont.table,1)
+res.binom.test<-mapply(cont.table[,1],
+                       FUN=binom.test,
+                       n=rowSums(cont.table),
+                       SIMPLIFY = FALSE)
+ci<-sapply(res.binom.test,"[[","conf.int")
+abscisses<-hist(don$Age.years,quantile(don$Age.years,probs =ordrequantiles),plot = FALSE)$mids
+col<-gray.colors(112,.95,0)[rowSums(cont.table)]
+
+
+plot(abscisses,
+     prof.lignes[,1],
+     pch=16,
+     col=col,
+     xlab="Age",
+     ylab="Proportion de bons payeurs",
+     ylim=c(0,1))
+
+for(ii in 1:length(abscisses)){
+  segments(x0=abscisses[ii],
+           y0=ci[1,ii],
+           x1=abscisses[ii],
+           y1=ci[2,ii],
+           col=col[ii])
+}
+```
+On voit que la liaison est plutôt non-monotone. On pourra découper la variable Age en 3 classes pour gérer cette non-linéarité.
+
+On visualise enfin le lien avec les autres variables quantitatives (discrètes avec peu de modalités)
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+par(mfrow=c(2,2),mar=c(4,5, 3, 2) + 0.1)
+
+for(ii in c("Instalment.per.cent", "Duration.in.Current.address", "No.of.Credits.at.this.Bank", "No.of.dependents")){
+  xx<-don[,ii]
+  cont.table<-table(cbind.data.frame(xx,don$Creditability))
+  prof.lignes<-prop.table(cont.table,1)
+  res.binom.test<-mapply(cont.table[,1],
+                         FUN=binom.test,
+                         n=rowSums(cont.table),
+                         SIMPLIFY = FALSE)
+  ci<-sapply(res.binom.test,"[[","conf.int")
+ 
+  #graphique pour la variable courante
+  abscisses<-as.numeric(rownames(prof.lignes))
+  col<-gray.colors(max(rowSums(cont.table)),.95,0)[rowSums(cont.table)]
+  plot(x = abscisses,
+       y=prof.lignes[,1],
+       pch=16,
+       col=col,
+       ylab="Proportion de bons payeurs",
+       xlab=ii,
+       xaxt="n",
+       ylim=c(0,1))
+  axis(side=1,at = abscisses,labels = abscisses,xlab=varbarplot[ii])
+  for(ii in 1:length(abscisses)){
+    segments(x0=abscisses[ii],
+             y0=ci[1,ii],
+             x1=abscisses[ii],
+             y1=ci[2,ii],
+             col=col[ii])
+  }
+}
+```
+
+#### 4.2.1.2 Identification des variables les plus discriminantes
+
+On regarde ensuite quelles sont les variables les plus liées au statut bon/mauvais payeur.
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+library(BioStatR)
+
+#calcul des rapport de corr?lation
+res.eta2<-sapply(don[,var.numeric],eta2,y=don$Creditability)
+
+#tri par valeurs d?croissantes
+res.eta2<-sort(res.eta2)
+
+#repr?sentation
+par(mar=c(5, 15, 4, 2) + 0.1)#pour g?rer les marges du graphique
+barplot(res.eta2,horiz = TRUE,las=2,xlab=expression(eta^2))
+```
+Parmi les variables quantitatives, les liaisons les plus fortes sont observées pour les variables Duration et Credit Amount. Au contraire, les variables No.of.dependents et Duration in Current address n’apparaissent pas comme discriminantes.
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#Creation d'une matrice contenant les variables qualitatives et quantitatives discr?tes (sans la variable Creditability)
+don.cramer<-don[,c(var.factor)]
+don.cramer<-don.cramer[,-which(colnames(don.cramer)=="Creditability")]
+
+#calcul du V de cramer entre Creditability et les autres variables non continues de don.cramer
+library(DescTools)
+res.cramer<-sapply(don.cramer,
+                   FUN=function(xx,yy){CramerV(table(xx,yy))},
+                   yy=don$Creditability)
+
+#tri par valeurs d?croissantes
+res.cramer<-sort(res.cramer)
+
+#repr?sentation
+par(mar=c(5, 15, 4, 2) + 0.1)
+barplot(res.cramer,horiz = TRUE,las=2,xlab="V de Cramer")
+```
+Parmi les variables qualitatives, les variables les plus liées sont Status et History, tandis que les variables Job et Telephone ne semblent pas discriminantes.
+
+Ces analyses pourront être utiles en vue d’une réduction du nombre de colonnes, les variables les moins discriminantes seront a priori amenées à être écarter en priorité. Attention toutefois car on a évalué ici un lien direct entre les variables explicatives et la réponse, il est possible que la liaison soit plus complexe, mettant en jeu des liaisons de type interaction par exemple. Pour les détecter, on pourrait utiliser une régression logistique ou des arbres binaires (cf Tufféry (2007)).
+
+On pourra tester le caractère significatif des liaisons entre la variable réponse qualitative en utilisant la fonction catdes du package FactoMineR permettant de décrire une partition (ici selon les modalités good et bad de la variable réponse) à partir des variables quantitatives, et des modalités des variables qualitatives (voir Lebart, Morineau, and Piron (2006) pour la méthode et le site du package pour la lecture des sorties de la fonction). Notons néanmoins que ceci n’est pertinent que si le nombre d’observations est modéré, sans quoi toutes les variables risqueraient d’être considérées comme statistiquement reliées à la variable réponse. Par ailleurs, pour éviter les hypothèses paramètriques, il pourra être préférable d’utiliser des intervalles de confiance bootstrap (Lejeune (2010)).
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+library(FactoMineR)
+catdes(don,num.var = ncol(don))
+```
+#### 4.2.1.3 Allure des distributions conditionnelles
+
+La distribution des variables continues conditionnellement à la variable réponse est parfois déterminante pour l’utilisation de certains modèles, notamment l’analyse linéaire discriminante. On analyse donc la nature de ces distributions.
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# Chargement de la librarie lattice permettant de faire des graphiques relativement avanc?s
+library(lattice)
+library(gridExtra)
+library(grid)
+library(ggplot2)
+
+# distribution conditionnelle de Age.Years
+plot1<-lattice::histogram(~Age.years|Creditability,data=don,type="density",col="lightblue",ylab="Densit?")
+
+```
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# distribution conditionnelle de Credit.Amount
+plot2<-lattice::histogram(~Credit.Amount|Creditability,data=don,type="density",col="lightblue",ylab="Densit?")
+# distribution conditionnelle de Duration
+plot3<-lattice::histogram(~Duration|Creditability,data=don,type="density",col="lightblue",ylab="Densit?")
+
+# affichage
+grid.arrange(plot1,plot2,plot3,nrow=1,ncol=3)
+```
+Clairement, les distributions conditionnelles des variables Age, Credit Amont et Duration ne sont pas normales. Peut-être sera-t-il nécessaire de transformer ces variables par la suite si cette normalité était requise par les méthodes employées. Notons qu’il est aussi possible de comparer certains indicateurs statistiques entre les deux groupes
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+by(don[,-ncol(don)],
+   INDICES = don$Creditability,
+   FUN=stargazer,
+   summary.stat=c("n","min","p25","median","mean","p75","max","sd"),
+   type = "text")
+```
+Cela sera particulièrement utile en présence d’un grand nombre de variables quantitatives. Par exemple, la comparaison des moyennes et écart-types de la variable Credit.Amount dans les deux groupes met en évidence une asymétrie à droite dans chacun d’entre eux, ce qui est incompatible avec une hypothèse de normalité.
+
+Pour les variables qualitatives, il sera intéressant d’identifier la distribution conditionnelle de la variable réponse en fonction des modalités des variables. Ceci permettra d’effectuer des regroupements de modalités préservant au mieux les liaisons entre ces variables et la variable réponse. On choisit donc de représenter la proportion de bons payeurs en fonction des modalités des différentes variables explicatives qualitatives.
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+var.expl.quali<-names(var.factor[-length(var.factor)])
+mapply(don[,var.expl.quali],FUN=function(xx,name){
+  tmp<-table(xx,don$Creditability)
+  tmp<-tmp/rowSums(tmp)
+  barplot(tmp[,"good"],main=name,horiz = TRUE,las=2,xlim=c(0,1))
+},name=var.expl.quali)
+```
+Par exemple, on voit que la proportion de bons payeurs est sensiblement la même que le client prenne la modalité thisBank.AllPaid ou noCredit.allPaid de la variable History. Ces deux modalités étant rares (cf Section 4.1.2), on pourra les fusionner si cela est nécessaire pour les méthodes d’analyse employées.
+
+### 4.2.2 Lien entre variables explicatives
+
+Des liaisons trop fortes entre variables explicatives peuvent conduire à de grande instabilité dans les modèles. L’analyse des liaisons entre variables explicatives permettra de détecter les couples de variables les plus liées.
+
+#### 4.2.2.1 Variables quantitatives
+
+On détermine les valeurs des coefficients de corrélation linéaire et de Spearman entre les variables quantitatives.
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+matcor<-cor(don[,var.numeric])
+PlotCorr(matcor)
+text(x=rep(1:ncol(matcor),ncol(matcor)), y=rep(1:ncol(matcor),each=ncol(matcor)),
+     label=sprintf("%0.2f", matcor[,ncol(matcor):1]), cex=0.8, xpd=TRUE)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+matcor<-cor(don[,var.numeric],method = "spearman")
+PlotCorr(matcor)
+text(x=rep(1:ncol(matcor),ncol(matcor)), y=rep(1:ncol(matcor),each=ncol(matcor)),
+     label=sprintf("%0.2f", matcor[,ncol(matcor):1]), cex=0.8, xpd=TRUE)
+```
+Les coefficients de corrélation et de Spearman sont plutôt proches pour les différents couples de variables. Dans le cas contraire, on aurait essayé de comprendre cette différence en analysant la forme des nuages de points pour les couples. Notons que l’on aurait pu également comparer le coefficient de corrélation au carré et le η2
+
+On constate que les liaisons ne sont pas très fortes, on ne s’attend donc pas à des problèmes de colinéarité entre ces variables.
+
+#### 4.2.2.2 Variables quantitatives et qualitatives
+
+De même, on calcule le η2
+entre les variables quantitatives et les variables qualitatives.
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# creation d'une matrice vide avec en ligne les variables quantitatives et en colonne les variables qualitatives
+mateta2<-matrix(NA,13,3)
+rownames(mateta2)<-c("Status", "History", "Purpose", "Savings account/bonds", "Length.of.current.employment", 
+"Sex.Marital.Status", "Guarantors", "Property", "Other.installment.plans", 
+"Housing", "Job", "Telephone", "Foreign.Worker")
+colnames(mateta2)<-c("Duration", "Credit.Amount", "Age.years")
+
+# calcul des diff?rents eta carr?
+for(ii in seq(nrow(mateta2))){
+  for(jj in seq(ncol(mateta2))){
+    mateta2[ii,jj]<-eta2(don[,colnames(mateta2)[jj]],
+                         don[,rownames(mateta2)[ii]])
+  }
+}
+
+# affichage
+PlotCorr(mateta2,
+         cols = colorRampPalette(c("white", "steelblue"), space = "rgb")(20),
+         breaks=seq(0, 1, length=21),
+         args.colorlegend = list(labels=sprintf("%.1f", seq(0, 1, length = 11)), frame=TRUE))
+text(x=rep(1:nrow(mateta2),ncol(mateta2)),
+     y=rep(1:ncol(mateta2),each=nrow(mateta2)),
+     label=sprintf("%0.2f", mateta2[,ncol(mateta2):1]),
+     cex=0.8,
+     xpd=TRUE)
+```
+Les liaisons entre variables explicatives quantitatives et qualitatives semblent plutôt ténues.
+
+#### 4.2.2.3 Variables qualitatives
+
+De la même façon, on détermine les V de Cramer entre les variables explicatives qualitatives.
+
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+matcram<-PairApply(don[,var.expl.quali], CramerV, symmetric = TRUE)
+PlotCorr(matcram,
+         cols = colorRampPalette(c("white", "steelblue"), space = "rgb")(20),
+         breaks=seq(0, 1, length=21),
+         args.colorlegend = list(labels=sprintf("%.1f", seq(0, 1, length = 11)), frame=TRUE))
+text(x=rep(1:ncol(matcram),ncol(matcram)), y=rep(1:ncol(matcram),each=ncol(matcram)),
+     label=sprintf("%0.2f", matcram[,ncol(matcram):1]), cex=0.8, xpd=TRUE)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+cont.table<-table(don[,c("Housing","Property")])
+cont.table
+
+```
+```{r,echo=TRUE, warning = FALSE, cache=TRUE}
+chisq <- chisq.test(cont.table)
+chisq
+chisq$p.value
+chisq$df
+```
+
+Clairement, il existe une association très forte, entre les modalités ForFree de la variable Housing et Unknown de la variable Property. Pour aller plus loin, on peut effectuer une analyse factorielle des correspondances (AFC) entre les deux variables.
+
+
+
+
+```{r,echo=TRUE, warning = FALSE, eval=FALSE}
+don1<-don[,c(12,15)]
+library("gplots")
+
+library("FactoMineR")
+library("factoextra")
+#res.afc<-CA(don1)
+```
+
+```{r, eval=FALSE}
+
+library("FactoMineR")
+library("factoextra")
+data(housetasks)
+chisq <- chisq.test (housetasks)
+chisq
+chisq$p.value
+library("gplots")
+# 1. convertir les données en tant que table
+dt <- as.table(as.matrix (housetasks))
+# 2. Graphique
+balloonplot(t (dt), main = "housetasks", xlab = "", ylab = "",
+            label = FALSE, show.margins = FALSE)
+
+#test AFC
+housetasks$Wife
+
+cont.table2<-table(housetasks[,c("Husband","Wife")])
+cont.table2
+chisq <- chisq.test(cont.table2)
+chisq
+chisq$p.value
+chisq$df
+#res.ca2 <- CA (cont.table2)
+
+
+res.ca <- CA (housetasks)
+print(res.ca)
+
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# initialisation de la graine du g?n?rateur al?atoire (pour reproductibilit? des r?sultats)
+set.seed(0)
+
+# discr?tisation en 4 classes des variables quantitatives (quand elles prennent un nombre de valeurs sup?rieure ? 10) 
+don.cat<-don
+for(i in which(sapply(don,is.numeric))){
+  if(length(table(don.cat[[i]]))>10){
+    breaks<-c(-Inf,quantile(don.cat[[i]],
+                            na.rm=T)[-1])
+    don.cat[[i]]<-cut(don.cat[[i]],
+                      breaks=breaks,labels=F);
+  }
+  don.cat[[i]]<-as.factor(don.cat[[i]])
+}
+
+str(don.cat)
+```
+On realise l'ACM en mettant la variable Creditability en variable illustrative.
+On gere les modalités rares (fréquence relative <5%) en effectuant de la ventilation
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+res.mca<-MCA(don.cat,graph=FALSE,quali.sup=ncol(don.cat),level.ventil = 0.05)
+```
+On effectue l’ACM en représentant ici le graphe des individus, celui des modalités, et celui des variables
+On affiche les graphiques relatifs au premier plan
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+
+#individus (aux plus fortes contributions)
+plot.MCA(res.mca, choix="ind",
+         habillage = as.numeric(ncol(don.cat)),
+         invisible="var",
+         select="contrib 20",
+         title="Graphe des individus",
+         cex.lab=1.5,
+         cex.main=1.5,
+         cex.axis=1.5)
+
+#modalit?s (aux plus fortes contributions)
+plot.MCA(res.mca, choix="ind",
+         label = "var",
+         invisible="ind",
+         cex.lab=1.5,
+         cex.main=1.5,
+         cex.axis=1.5,
+         col.lab = TRUE,
+         title='Graphe des modalit?s',
+         selectMod = "contrib 20")
+# on ajoute les modalit?s de la variable illustrative
+text(res.mca$quali.sup$coord[,1:2],labels = rownames(res.mca$quali.sup$coord),pos = 3,col=3)
+
+#variables (aux plus fortes coordonn?es)
+plot(res.mca, choix="var",
+     select="coord 10",
+     title="Graphe des variables",
+     cex.lab=1.5,
+     cex.main=1.5,
+     cex.axis=1.5)
+```
+# Classification
+
+On complete cette analyse par une CAH sur les composantes de l'ACM. Pour cela, on retient les premières composantes telles que l'inertie cumulée atteigne 80% (i.e. les 32 premieres).
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+set.seed(0)
+
+# Choix du nombre de composantes
+ncp<-which(res.mca$eig[,3]>80)[1]
+
+# On effectue l'ACM en conservant les 32 premi?res dimensions 
+res.mca<-MCA(don.cat,graph=FALSE,quali.sup=ncol(don.cat),level.ventil = 0.05,ncp=ncp)
+
+# On effectue la CAH (avec 5 classes d'apr?s le diagramme des gains d'inertie)
+res.cah<-HCPC(res.mca,nb.clust=5,graph=FALSE, description = FALSE)
+
+# On affiche le dendogramme
+plot(res.cah, choice="tree")
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# On repr?sente les classes sur le graphe de l'ACM
+set.seed(0)
+res.mca.clust<-MCA(res.cah$data.clust,
+                   graph=FALSE,
+                   quali.sup=c(ncol(don.cat),ncol(res.cah$data.clust)),
+                   level.ventil = 0.05)
+plot.MCA(res.mca.clust,
+         habillage = ncol(res.cah$data.clust),
+         choix="ind",invisible=c("ind","var"))
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#Investigate(res.mca,nclust=5,ncp=32)
+catdes(res.cah$data.clust,num.var = ncol(res.cah$data.clust))
+```
+## 5.1 Transformations
+
+### 5.1.1 Variables quantitatives
+
+Une des transformation les plus couramment appliquée aux variables quantitatives est la discrétisation. Celle-ci permettra notamment d’harmoniser la nature des variables. Par ailleurs, il arrive fréquemment que les modèles statistiques reposent sur une hypothèse de normalité des variables. Quand cette hypothèse n’est pas vérifiée, on peut souhaiter effectuer une transformation des variables pour s’y ramener. De même, quand la relation entre une variable explicative continue et une variables réponse n’est pas linéaire, on pourra préférer découper cette variable explicative en classes, en particulier quand le lien n’est pas monotone (voir Section 4.2.1.1).
+
+#### 5.1.1.1 Découpage en classes
+
+Comme pour la détermination des classes d’un histogramme, le découpage en classes d’une variable quantitatives peut être effectué de différentes façons. En particulier, on peut faire un découpage ``métier’’, en choisissant des classes classiques pour le critère mesuré, ou par des approches plus statistiques, notamment selon les quantiles. Dans le cas d’un problème de classification supervisée, il sera préférable d’utiliser l’algorithme MDLPC de Fayyad et Irani (Fayyad and Irani (1993)), disponible dans le package discretization.
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+library(discretization)
+res.mdlp<-mdlp(don[,c("Duration", "Credit.Amount", "Age.years","Creditability")])
+str(res.mdlp$Disc.data)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+sapply(c("Duration", "Credit.Amount"),
+       FUN=function(var,res.mdlp){
+         chisq.test(res.mdlp$Disc.data[,var],res.mdlp$Disc.data$Creditability)$p.value
+       },
+       res.mdlp=res.mdlp)
+```
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+don$Duration.cat<-res.mdlp$Disc.data$Duration
+don$Credit.Amount.cat<-res.mdlp$Disc.data$Credit.Amount
+```
+## Linearite
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+don$Age.years.cat<-cut(don$Age.years,breaks = c(0,24,35,100))
+```
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+cont.table<-table(don$Age.years.cat,don$Creditability)
+prof.lignes<-prop.table(cont.table,1)
+res.binom.test<-mapply(cont.table[,1],
+                       FUN=binom.test,
+                       n=rowSums(cont.table),
+                       SIMPLIFY = FALSE)
+ci<-sapply(res.binom.test,"[[","conf.int")
+abscisses<-c((19+24)/2,(24+35)/2,(35+75)/2)
+
+plot(abscisses,
+     prof.lignes[,1],
+     pch=16,
+     col=1,
+     xlab="Age",
+     ylab="Proportion de bons payeurs",
+     ylim=c(0,1))
+
+for(ii in 1:length(abscisses)){
+  segments(x0=abscisses[ii],
+           y0=ci[1,ii],
+           x1=abscisses[ii],
+           y1=ci[2,ii],
+           col=1)
+}
+```
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+chisq.test(don$Age.years.cat, don$Creditability)$p.value
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+don$Credit.Amount.log<-log(don$Credit.Amount)
+```
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+par(mfrow=c(1,2))
+qqPlot(don$Credit.Amount)
+qqPlot(don$Credit.Amount.log)
+```
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#coefficient d'asymetrie
+coefasym<-function(x){
+  m <- mean(x)
+  mu2 <- mean( (x-m)^2 )
+  mu3 <- mean( (x-m)^3 )
+  sigma <- sqrt(mu2)
+  gamma1 <- mu3/sigma^3
+  return(gamma1)
+}
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+coefasym(don$Credit.Amount)
+coefasym(don$Credit.Amount.log)
+```
+
+on cree une fonction qui prend en entrée une grille pour le paramètre lambda,ainsi que la variable a transformer et qui,pour chaque valeur de lambda,renvoie le coefficient de correlation entre les quantiles
+
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+myBoxCox<-function(lambda.grid,var){
+  res.cor<-rep(NA,length(lambda.grid))
+  comp<-0
+  probs<-seq(1/length(var),(length(var)-1)/length(var),1/length(var))
+  quantilenormale<-qnorm(probs)
+  for (lambda in lambda.grid){
+    #on incremente un compteur
+    comp<-comp+1
+    #on effectue la transformation pour le lambda courant
+    var.boxcox<-BoxCox(var,lambda = lambda)
+    #on calcule le coefficient de corr?lation entre les quantiles
+    # de la variable transform?e et ceux d'une loi normale
+    res.cor[comp]<-cor(quantile(var.boxcox,probs = probs),
+                       quantilenormale)
+  }
+  return(res.cor)
+}
+
+
+# on d?finit une grille et on calcule la correlation entre les quantiles
+# en fonction du parametre de la grille
+lambda.grid<-seq(-1,0.1,1/1000)
+res.cor<-myBoxCox(lambda.grid=lambda.grid,var=don$Age.years)
+# on affiche l'?volution du coefficient de corr?lation en fonction de lambda
+plot(lambda.grid,res.cor,xlab=expression(lambda),ylab=expression(rho))
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#on identifie la valeur de lambda qui maximise la correlation 
+lambda.grid[which.max(res.cor)]
+
+
+
+#on effectue donc la transformation pour lambda = -0.709
+don$Age.years.norm<-BoxCox(don$Age.years,lambda = -0.709)
+
+
+
+qqPlot(don$Age.years)
+qqPlot(don$Age.years.norm)
+
+#on calcule le coefficient d'asym?trie
+coefasym(don$Age.years)
+coefasym(don$Age.years.norm)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+par(mfrow=c(1,2))
+
+# Duration
+lambda.grid<-seq(-.5,1,1/1000)
+res.cor<-myBoxCox(lambda.grid=lambda.grid,var=don$Duration)
+plot(lambda.grid,res.cor,xlab=expression(lambda),ylab=expression(rho),main="Duration")
+don$Duration.norm<-BoxCox(don$Duration,lambda = lambda.grid[which.max(res.cor)])
+
+#Credit.Amount
+lambda.grid<-seq(-.5,1,1/1000)
+res.cor<-myBoxCox(lambda.grid=lambda.grid,var=don$Credit.Amount)
+plot(lambda.grid,res.cor,xlab=expression(lambda),ylab=expression(rho),main="Credit.Amount")
+```
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+don$Credit.Amount.norm<-BoxCox(don$Credit.Amount,lambda = lambda.grid[which.max(res.cor)])
+
+par(mfrow=c(2,2),mar=c(4,5, 3, 2) + 0.1)
+qqPlot(don$Duration)
+qqPlot(don$Duration.norm)
+qqPlot(don$Credit.Amount)
+qqPlot(don$Credit.Amount.norm)
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+sapply(don[,c("Credit.Amount","Credit.Amount.log","Credit.Amount.norm")],coefasym)
+```
+Bien que la transformation logarithmique de la variable Credit.Amount soit satisfaisante, nous retiendrons plutôt celle de Box-Cox pour laquelle le coefficient d’asymétrie est plus proche de 0.
+
+Remarquons qu’il existe d’autres façons de choisir le paramètre λ. En particulier, la fonction BoxCoxLambda du package DescTools propose une estimation par maximum de vraisemblance.
+
+### 5.1.2 Variables qualitatives
+
+Différentes méthodes sont souvent mises en défaut en présence de modalités rares comme les modèles de régression logistique, ou l’ACM qui est fortement influencée par ce type de données. Une stratégie de pré-traitement consiste alors à fusionner les modalités de faible effectif. L’étude exploratoire univariée effectuée en Section 4.1.2 a permis d’identifier des modalités rares sur les variables Status, History, Purpose, Savings account/bonds,Length.of.current.employment,Sex.Marital.Status, Other.installment.plans,Job, tandis que l’étude biavriée effectuée en Section 4.2.1.3 a permis d’identifier les modalités pour lesquelles la distribution de la variable réponse est similaire. A partir de là, on peut décider de fusionner les modalités suivantes :
+
+    History : noCredit.allPaid et thisBank.AllPaid
+    Purpose : Other, Education, Retraining
+    Purpose : DomesticAppliance, Repairs
+    Savings account/bonds : gt.1000 et 500.to.1000
+    Sex.Marital.Status : Male.Divorced.Seperated et Male.Single
+    Guarantor : CoApplicant et None
+    Other.installment.plans : Stores et None
+    Job : UnemployedUnskilled et UnskilledResident
+
+On décide également d’enlever la variable Foreign.Worker dans la mesure où elle ne comporte que deux modalités, dont une rare et qu’elle ne semble pas très discriminante (cf Section 4.2.1.2).
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# creation de nouvelles variables
+don$History.new<-don$History
+don$Purpose.new<-don$Purpose
+don$`Savings account/bonds.new`<-don$`Savings account/bonds`
+don$Sex.Marital.Status.new<-don$Sex.Marital.Status
+don$Guarantors.new<-don$Guarantors
+don$Other.installment.plans.new<-don$Other.installment.plans
+don$Job.new<-don$Job
+
+# fusion des modalit?s
+levels(don$History.new)<-c("allPaid", "allPaid", "paidDuly", "delay", 
+                           "critical")
+levels(don$Purpose.new)<-c("NewCar", "UsedCar", "Other-Education-Retraining", "Furniture.Equipment", "Radio.Television", 
+"DomesticAppliance-Repairs", "DomesticAppliance-Repairs", "Other-Education-Retraining", "Other-Education-Retraining", "Business")
+levels(don$`Savings account/bonds.new`)<-c("lt.100", 
+                                           "100.to.500", "gt.500", "gt.500", "Unknown")
+levels(don$Sex.Marital.Status.new)<-c("Male.Single/Divorced.Sep", "Female.NotSingle", "Male.Single/Divorced.Sep", "Male.Married.Widowed")
+levels(don$Guarantors.new)<-c("None", "None", "Guarantor")
+levels(don$Other.installment.plans.new)<-c("Bank","Stores-None", "Stores-None")
+levels(don$Job.new)<-c("Unskilled", "Unskilled", "SkilledEmployee", 
+                       "Management.SelfEmp.HighlyQualified")
+
+# suppression de la variables Foreign. Worker
+don$Foreign.Worker<-NULL
+
+
+
+par(mfrow=c(3,3),mar=c(3, 10, 2, 2) + 0.1)
+mapply(don[,colnames(don)%in%paste0(names(var.factor),".new")],
+       FUN=function(xx,name){barplot(table(xx),main=name,horiz = TRUE,las=2,xlim=c(0,1000),cex.main=.9)},
+       name=colnames(don)[colnames(don)%in%paste0(names(var.factor),".new")])
+```
+
+## 5.2 Réduction des données
+
+### 5.2.1 En lignes
+
+Ayant déjà abordé la classification en Section 4.3.2, nous montrons ici comment réduire le nombre de lignes en effectuant un échantillonnage (simple, systématique ou stratifié).
+
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+# ?chantillonnage simple
+set.seed(0)
+ech.simple<-sample(seq(nrow(don)),size=500)
+
+# ?chantillonnage syst?matique
+set.seed(0)
+ech.syst<-seq(1,nrow(don),2)
+
+# ?chantillonnage stratifi? sur la r?ponse (proportionnel)
+set.seed(0)
+
+## on identifie les bons payeurs (strate1) et les mauvais (strate0)
+
+strate1<- which(don$Creditability=="good")
+strate0<- which(don$Creditability!="good")
+
+## dans chaque strate, on tire la moiti?e des individus au hasard
+
+ech.strat.1<-strate1[sample(seq(length(strate1)),
+                                size=ceiling(length(strate1)/2))]
+ech.strat.0<-strate0[sample(seq(length(strate0)),
+                                size=ceiling(length(strate0)/2))]
+## les donn?es issues de chaque strate sont alors agr?g?es
+ech.strat<-c(ech.strat.1,ech.strat.0)
+
+
+
+var.simple<-factor(seq(nrow(don))%in%ech.simple)
+catdes(cbind.data.frame(don,var.simple),ncol(don)+1,proba = 0.05/ncol(don))
+
+var.syst<-factor(seq(nrow(don))%in%ech.syst)
+catdes(cbind.data.frame(don,var.syst),ncol(don)+1,proba = 0.05/ncol(don))
+
+var.strat<-factor(seq(nrow(don))%in%ech.strat)
+catdes(cbind.data.frame(don,var.strat),ncol(don)+1,proba = 0.05/ncol(don))
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+var.simple<-factor(seq(nrow(don))%in%ech.simple)
+catdes(cbind.data.frame(don,var.simple),ncol(don)+1,proba = 0.05/ncol(don))
+
+var.syst<-factor(seq(nrow(don))%in%ech.syst)
+catdes(cbind.data.frame(don,var.syst),ncol(don)+1,proba = 0.05/ncol(don))
+
+var.strat<-factor(seq(nrow(don))%in%ech.strat)
+catdes(cbind.data.frame(don,var.strat),ncol(don)+1,proba = 0.05/ncol(don))
+```
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+don.cat<-don[,c("Status",
+"Length.of.current.employment", "Instalment.per.cent", 
+"Duration.in.Current.address", 
+"Property", "Housing", 
+"No.of.Credits.at.this.Bank", "No.of.dependents", "Telephone", 
+"Duration.cat", "Credit.Amount.cat", "Age.years.cat", 
+"History.new", "Purpose.new", "Savings account/bonds.new", "Sex.Marital.Status.new", 
+"Guarantors.new", "Other.installment.plans.new", "Job.new","Creditability")]
+
+for(i in which(sapply(don.cat,is.numeric))){
+  don.cat[[i]]<-as.factor(don.cat[[i]])
+}
+
+res.mca<-MCA(don.cat,
+             graph=FALSE,
+             quali.sup=ncol(don.cat),
+             level.ventil = 0.05,ncp=Inf)
+
+ordre<-order(res.mca$quali.sup$eta2)
+barplot(res.mca$quali.sup$eta2[ordre],
+        names.arg = colnames(res.mca$quali.sup$eta2)[ordre],
+        las=2,horiz = TRUE,
+        cex.names = .6)
+```
+En fonction du nombre de colonnes désiré, on retiendra un certain nombre de composantes parmi les plus liées. En plus de limiter le nombre de colonnes, cette opération rendra les données quantitatives et décorrélées.
+
+## Conclusion
+
+La fouille des données est un processus itératif. A ce stade, nous ne savons pas encore précisément quelles seront les méthodes supervisées que nous appliquerons sur les données. Or, ceci est un point important pour définir un prétraitement optimal. Nous pouvons maintenant lancer les predictions.
+
+# 6 Meta-algorithmes - prédiction
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#l'objet don correspond au jeu de données German Credit
+set.seed(235)
+id<-sample(seq(nrow(don)),size=ceiling(nrow(don)*2/3))
+test<-don[-id,]
+ech<-don[id,]
+```
+
+Maintenant on va choisir quel algorithme est le plus précis pour prédire la  variable réponse **Creditability** dont les modalités sont "good"  et  "bad". Creditability indique  que la décison d'accorder ou non un crédit bancaire. On va utiliser 5 algorithmes et comparer les performances de ces modèles.
+
+
+
+**1.Decision Trees CART Bagging**
+
+**2.Logistic Regression binaire**
+
+**3.Random Forests**
+
+**4.Naives Bayes **
+
+**5.Neural Networks**
+
+
+
+## 6.1 Bagging
+
+Dans un premier temps, on construit un arbre CART à partir du jeu d’apprentissage puis on évalue ses performances sur le jeu de données test. L’AUC obtenue vaut 0.675 tandis que le taux de mauvais classement vaut 0.285.
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+start_timeglm1= Sys.time()
+set.seed(235)
+library(ROCR)
+library(rpart)#classifer Tree
+res.tree<-rpart(Creditability~.,data=ech)#ajustement de l'arbre non élagué
+res.prune<-prune(res.tree,cp=0.046)#élagage
+res.pred<-predict(res.prune,newdata = test)[,1]#calcul des probabilités d'être bon payeur sur l'échantillon test
+AUC_CART<-performance(prediction(res.pred,test$Creditability),measure="auc")@y.values[[1]]#calcul de l'AUC
+Err_CART<-performance(prediction(res.pred,test$Creditability),measure ="err")@y.values[[1]][4]#calcul de l'erreur de mauvais classement
+cat("AUC CART : ", AUC_CART); 
+
+cat(" Erreur CART : ",Err_CART)#affichage
+
+
+end_timeglm1= Sys.time()
+end_timeglm1 - start_timeglm1
+```
+```{r , echo=TRUE,cache=TRUE,eval=TRUE, ,fig.align = 'center', fig.height = 5.5, fig.width = 4.5}
+
+fancyRpartPlot(res.tree,palettes=c("Blues", "Oranges"),cex=0.4,main="Decision Tree", tweak=1)
+```
+Dans un deuxième temps, on applique la procédure de bagging en ré-échantillonnant avec remise le jeu d’apprentissage. Sur chacun des B=200 échantillons bootstrap de taille n=666, un arbre non élagué avec 5 individus par feuille est ajusté. Ceci peut par exemple être mis en oeuvre à l’aide du package R ipred.
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+set.seed(235)
+library(ipred)
+start_timebag= Sys.time()
+bag<-bagging(Creditability~.,
+             data=ech,
+             nbagg=200,
+             coob=TRUE,
+             control=rpart.control(minbucket = 5))
+
+end_timebag= Sys.time()
+end_timebag - start_timebag
+```
+
+L’agrégation selon les probabilités d’appartenance aux deux classes conduit à une AUC de 0.7686 sur l’échantillon test. Comme attendu, l’AUC est plus faible en agrégeant les prédictions fournies par les B arbres selon le vote majoritaire (AUC de 0.767).
+
+
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+#agregation des proba
+test$bag1<-predict(bag,test,type="prob",aggregation="average")
+pred1<-prediction(test$bag1[,1],test$Creditability)
+AUC_proba<-performance(pred1,"auc")@y.values[[1]]
+
+#agregation des valeurs prédites
+test$bag2<-predict(bag,test,type="prob",aggregation="majority")
+pred2<-prediction(test$bag2[,1],test$Creditability)
+
+AUC_pred<-performance(pred2,"auc")@y.values[[1]]
+
+cat("AUC selon probabilités : ", AUC_proba);
+
+cat("AUC selon prédictions : ", AUC_pred)
+```
+```{r, eval=TRUE,warning = FALSE, cache=TRUE}
+#accuracy
+#confusionglm<-table(test$bag2, test$Creditability)
+#bag2.acc <-(confusionglm[1,1] + confusionglm[2,2])/sum(confusionglm)
+#bag2.recall<-confusionglm[1,1]/(confusionglm[1,1]+confusionglm[2,1])
+#bag2.precision<- confusionglm[1,1]/(confusionglm[1,1]+confusionglm[1,2]) 
+#bag2.fscore<- (2*confusionglm[1,1])/((2*confusionglm[1,1])+confusionglm[1,2]+confusionglm[2,1])
+
+resultats.bag2<- data.frame( 'Durée'=c(end_timebag - start_timebag),Accuracy=c(AUC_pred),'Taux Erreur' = c(1-AUC_pred), Recall=c("-"), Precision=c("-"),F1score=c("-") ,row.names=c("Bagging CART"))
+library(kableExtra)#tableau
+
+
+#resultat
+kableExtra::kable(resultats.bag2,booktabs= T,caption = "Resultats Bagging CART")  %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
+
+Enfin, on peut vérifier que l’erreur OOB est proche du taux de mauvais classement obtenu sur l’échantillon test.
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+cat("erreur test : ",performance(pred1,measure ="err")@y.values[[1]][251]);
+
+cat("erreur OOB : ",bag$err)
+```
+
+## 6.2 Forêts aléatoires
+
+Les forêts aléatoires sont une procédure de bagging particulière dans le sens où non seulement les individus sont ré-échantillonnés (comme classiquement en bagging), mais où en plus les variables explicatives utilisées pour construire les noeuds sont choisies parmi un sous-ensemble de variables tiré au hasard. Ceci a pour effet de diminuer la liaison entre les différents arbres construits et améliore de ce fait les performances du prédicteur baggé. La prédiction par forêts aléatoires peut par exemple être effectuée à l’aide du package randomForest. Ici, avec 200 arbres on obtient une AUC de 0.80 sur l’échantillon de test.
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+library(randomForest)
+set.seed(235)
+res.rf<-randomForest(ech$Creditability,x=ech[,-c(21,22)],ntree = 200)
+#cat("AUC Random_Forest : ", performance(prediction(predict(res.rf,test,type="prob",aggregation="average")[,1],test$Creditability),"auc")@y.values[[1]])
+```
+Voici le resultat de l'apprentissage :
+
+```{r ,cache=TRUE,eval=TRUE,warning = FALSE, cache=TRUE}
+#modele
+res.rf$confusion
+```
+
+#### Apply model to the test set
+
+```{r, echo=TRUE, warning = FALSE, cache=TRUE}
+predict_rf<-predict(res.rf, test)
+```
+Nous calculons la confusion Matrice de confusion.
+
+```{r, echo=TRUE, warning = FALSE, cache=TRUE}
+#confusion
+#postResample(predict_rf, test$Creditability)
+
+caret::confusionMatrix(predict_rf, test$Creditability)
+```
+Pas d'erreur.
+
+
+## Boosting
+
+A présent, on propose de comparer le bagging au boosting en utilisant comme prédicteur de base des stumps qui ont l’avantage d’être peu coûteux algorithmiquement. Le boosting peut être par exemple réalisé à l’aide du package R gbm ou ada. On commence par inspecter l’influence du nombre d’itérations de la procédure sur l’erreur en considérant l’échantillon d’apprentissage ou l’échantillon test.
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+library(gbm)
+set.seed(235)
+B<-5000#nombre d'iterations
+ech$Creditability.bin<-as.numeric(ech$Creditability)-1#0 = good
+test$Creditability.bin<-as.numeric(test$Creditability)-1
+model <- gbm(Creditability.bin~.,data=ech[,-21],distribution="adaboost",interaction.depth=1,shrinkage=1,n.trees=B)
+
+#représentation graphique de l'influence de B
+boucle <- seq(1,B,by=30)
+errapp <- errtest <-rep(0,length(boucle))
+
+k <- 0
+for (i in boucle){
+ k <- k+1
+ prev_app <- predict(model,newdata=ech[,-21],n.trees=i)
+ errapp[k] <- sum(as.numeric(prev_app>0)!=ech[,-21]$Creditability.bin)/nrow(ech)
+ prev_test<- predict(model,newdata=test[,-21],n.trees=i)
+ errtest[k] <- sum(as.numeric(prev_test>0)!=test[,-21]$Creditability.bin)/nrow(test)
+}
+
+plot(boucle,errapp,type="b",col="blue",xlab="nombre d'iterations",
+ylab="erreur",lty=1) #ylim=c(0,0.03)
+points(boucle,errtest,col="red",type="b",pch=2)
+abline(0.3,0,lty=2)
+legend("bottomleft",legend=c("apprentissage","test"),col=c("blue","red"),pch=c(1,2),bty="n")
+```
+
+
+La Figure ci-dessus illustre clairement le problème de sur-apprentissage : l’erreur d’apprentissage diminue sans cesse tandis que l’erreur de test se rapproche de 0.3 correspondant à la proportion de mauvais payeurs dans le jeu de données. Ainsi, si B est trop élevé, les performances du prédicteur baggé avoisinent celle d’un tirage au hasard.
+
+En retenant les 120 premiers arbres, on obtient une AUC à 0.775 sur l’échantillon test.
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+AUC_boosting<-gbm.roc.area(test$Creditability.bin, predict(model,newdata=test[,-21],n.trees = 120))
+cat("AUC boosting : ",AUC_boosting)
+```
+
+
+
+
+Comparons à présent avec la procédure de bagging sur les stumps
+
+```{r,echo=TRUE, warning = FALSE, eval=TRUE}
+set.seed(235)
+stump<-bagging(Creditability~.,data=don[id,],nbagg=200,coob=TRUE,control=rpart.control(maxdepth = 1,cp=-1))
+test$stump<-predict(stump,test,type="prob",aggregation="average")
+pred<-prediction(test$stump[,1],test$Creditability)
+AUC_bagging<-performance(pred,"auc")@y.values[[1]]
+cat("AUC bagging : ",AUC_bagging)
+
+```
+
+
+
+L’AUC est plus faible. Ceci n’est pas surprenant car le boosting permet de corriger à la fois le biais et la variance des stumps, tandis que le bagging ne diminue que la variance.
+
+
+Pour rappel:
+
+La précision compte la proportion d'items pertinents parmi les items sélectionnés
+
+Le rappel compte la proportion d'items pertinents sélectionnés parmi tous les items pertinents sélectionnables
+
+
+## 6.3 Logistic Regression 
+
+La methode "lm" Regression lineaire ne fonctionne pas car elle ne fait pas de classification. 
+Le modèle de régression logistique de R fonctionne avec la variable "outcome" qui est binaire "+50000" et "-50000". La fonction predict donne une probabilité pour chaque obervation comme sortie. Il n'y a pas de hyperparamètre pour faire le fine-tuning.
+
+Generalized Linear Model
+
+  method = 'glm'
+
+Type: Regression, Classification
+
+- No tuning parameters for this model
+
+A model-specific variable importance metric is available.
+
+
+
+
+#### Fine-Tuning avec Cross Validation 
+
+Il n'y a pas d'hyperparmater pour ce modèle. Nous utilisons le paramètre number=5. 
+
+```{r,echo=TRUE, warning = FALSE, cache=TRUE}
+library(MASS) #Logistic Regression and LDA
+library(caret)#knn3 trainControl train
+
+test<-don[-id,]
+ech<-don[id,]
+
+#train
+start_timeglm1 = Sys.time()
+
+fitControl <- trainControl(method = "cv",
+                           number = 5)
+                        
+
+set.seed(20)
+
+#glm<-glm(outcome ~ .,small_train_data,family = "binomial")
+glm <- caret::train(Creditability ~ ., data=ech, method = "glm", trControl = fitControl)
+
+
+
+end_timeglm1= Sys.time()
+end_timeglm1 - start_timeglm1
+```
+
+
+
+Voici le resultat de l'apprentissage :
+
+```{r ,cache=TRUE,eval=TRUE,warning = FALSE, cache=TRUE}
+#modele
+glm
+```
+Nous avons une faible erreur d'apprentissage
+
+Nous regardons quelle covariable influnce le plus le modèle.
+```{r ,cache=TRUE,eval=TRUE,warning = FALSE, cache=TRUE}
+varImp(glm)
+```
+
+
+```{r , echo=TRUE,cache=TRUE,eval=TRUE, ,fig.align = 'center', fig.height = 3.5, fig.width = 4.5}
+plot(varImp(glm))
+```
+Nous avons **sex Male,extra_outcomenone,weeks_worked_in_year** qui influencent beaucoup le modèle.
+
+La fonction predict donne une probabilité pour chaque obervation comme sortie.
+
+
+
+#### Apply model to the test set
+```{r, echo=TRUE,eval=TRUE, warning = FALSE, cache=TRUE}
+
+#prediction
+predict_glm<-predict(glm, test)
+
+```
+
+
+
+Nous calculons la confusion Matrice de confusion.
+```{r, echo=TRUE, warning = FALSE, cache=TRUE}
+
+#confusion
+postResample(predict_glm, test$Creditability)
+
+caret::confusionMatrix(predict_glm, test$Creditability)
+```
+Nous avons une faible erreur de validation et elle est équivalant à l' erreur d'apprentissage.
+
+#### Confusion Table
+```{r, eval=TRUE,warning = FALSE, cache=TRUE}
+#accuracy
+confusionglm<-table(predict_glm, test$Creditability)
+glm.acc <-(confusionglm[1,1] + confusionglm[2,2])/sum(confusionglm)
+glm.recall<-confusionglm[1,1]/(confusionglm[1,1]+confusionglm[2,1])
+glm.precision<- confusionglm[1,1]/(confusionglm[1,1]+confusionglm[1,2]) 
+glm.fscore<- (2*confusionglm[1,1])/((2*confusionglm[1,1])+confusionglm[1,2]+confusionglm[2,1])
+
+resultats.glm <- data.frame( 'Durée'=c(end_timeglm1 - start_timeglm1),Accuracy=c(glm.acc),'Taux Erreur' = c(1-glm.acc), Recall=c(glm.recall), Precision=c(glm.precision),F1score=c(glm.fscore) ,row.names=c("Logistic Regression"))
+library(kableExtra)#tableau
+
+kable(confusionglm, booktabs= T, caption = "Confusion Table Logistic Regression 1") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r,echo=FALSE, eval=TRUE,warning = FALSE,cache = FALSE,results='hide'}
+#calcul
+
+confusionglm[2,2]
+confusionglm[1,1]
+confusionglm[2,1]
+confusionglm[1,2]
+
+``` 
+
+La matrice de confusion suivante se lit alors comme suit :
+
+- horizontalement, sur les `r confusionglm[1,1]+confusionglm[1,2]` données outcome "good" , `r confusionglm[1,1]`  ont été estimés par le système de classification comme "good" et `r confusionglm[1,2]` ont été estimés comme "bad" (faux-négatifs),
+
+- horizontalement, sur les `r confusionglm[2,1]+confusionglm[2,2]` données outcome "bad" , `r confusionglm[2,1]` ont été estimés comme "good" (faux-positifs) et `r confusionglm[2,2]` ont été estimés comme "bad"
+
+    
+- verticalement, sur les `r confusionglm[1,1]+confusionglm[2,1]` outcome estimés par le système comme "good", `r confusionglm[2,1]` sont en fait des outcome "bad",
+
+- verticalement, sur les `r confusionglm[1,2]+confusionglm[2,2]` outcome estimés par le système comme "bad", `r confusionglm[2,2]` sont en fait des outcome "good".
+
+#### Resultat de la prédiction
+```{r, eval=TRUE,warning = FALSE}
+#resultat
+kableExtra::kable(resultats.glm,booktabs= T,caption = "Resultats Logistic Regression")  %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+## 6.4 Naive Bayes
+
+On va utiliser l'algorithme  naïf bayésien qui est l’une des méthodes les plus simples en apprentissage supervisé basée sur le théorème de Bayes. Il est peu utilisé par rapport aux arbres de décision ou les régressions logistiques mais il est facile d’estimer des paramètres et il est rapide.
+    
+Naive Bayes
+
+  method = 'nb'
+
+Type: Classification
+
+Tuning parameters:
+
+    - fL (Laplace Correction)
+    
+    - usekernel (Distribution Type) = TRUE, FALSE
+    
+    - adjust (Bandwidth Adjustment)
+
+Required packages: klaR
+
+#### Fine-Tuning Hyperparameters avec Cross Validation et Grid Search
+
+Nous utilisons le paramètre number=5.
+
+```{r, echo=TRUE, warning = FALSE,cache = TRUE}
+#Naive Bayes
+start_timenb = Sys.time()
+set.seed(123)
+# set up tuning grid
+#☺search_grid <- expand.grid(usekernel = c(FALSE,TRUE),fL = c(0.4,0.6,0.8,1,1.2), adjust = seq(0, 3, by = 1))
+
+fitControl <- trainControl(method = 'cv', number = 10,search = "random")
+#NB_model <- caret::train(Creditability~., data=ech, method="nb",trControl=fitControl)#, tunegrid = search_grid)
+
+
+end_timenb = Sys.time()
+end_timenb - start_timenb
+```
+```{r, echo=TRUE, warning = FALSE,cache = TRUE}
+start_timenb = Sys.time()
+NB_model <- naiveBayes(Creditability~., data=ech)
+end_timenb = Sys.time()
+end_timenb - start_timenb
+```
+
+Voici le resultat de l'apprentissage :
+```{r, echo=TRUE, warning = FALSE, cache=TRUE}
+NB_model
+
+
+```
+Nous avons un faible résultat d'apprentissage.
+
+
+
+
+
+
+
+#### Apply model to the test set
+```{r, echo=TRUE, warning = FALSE,cache = TRUE}
+predict_NB <- predict(NB_model, test)
+```
+
+
+
+```{r, echo=TRUE, warning = FALSE,cache = TRUE}
+postResample(predict_NB, test$Creditability)
+caret::confusionMatrix(predict_NB, test$Creditability)
+
+```
+Nous avons une faible erreur de validation et elle est équivalant à l' erreur d'apprentissage.
+
+#### Confusion Table
+```{r, eval=TRUE,warning = FALSE,cache = TRUE}
+confusionnb <- table(predict_NB, test$Creditability)
+nb.acc <-(confusionnb[1,1] + confusionnb[2,2])/sum(confusionnb)
+nb.recall<-confusionnb[1,1]/(confusionnb[1,1]+confusionnb[2,1])
+nb.precision<- confusionnb[1,1]/(confusionnb[1,1]+confusionnb[1,2]) 
+nb.fscore<- (2*confusionnb[1,1])/((2*confusionnb[1,1])+confusionnb[1,2]+confusionnb[2,1])
+
+resultats.nb <- data.frame( 'Durée'=c(end_timenb - start_timenb),Accuracy=c(nb.acc),'Taux Erreur' = c(1-nb.acc), Recall=c(nb.recall), Precision=c(nb.precision),F1score=c(nb.fscore), row.names=c("Naives bayes  "))
+
+
+
+kable(confusionnb, booktabs= T, caption = "Confusion Table Naives bayes  ") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+
+```{r,echo=FALSE, eval=TRUE,warning = FALSE,cache = TRUE,results='hide'}
+confusionnb[2,2]
+confusionnb[1,1]
+confusionnb[2,1]
+confusionnb[1,2]
+
+``` 
+
+La matrice de confusion suivante se lit alors comme suit :
+
+- horizontalement, sur les `r confusionnb[1,1]+confusionnb[1,2]` données outcome "good" , `r confusionnb[1,1]`  ont été estimés par le système de classification comme "good" et `r confusionnb[1,2]` ont été estimés comme "bad" (faux-négatifs),
+
+- horizontalement, sur les `r confusionnb[2,1]+confusionnb[2,2]` données outcome "bad" , `r confusionnb[2,1]` ont été estimés comme "good" (faux-positifs) et `r confusionnb[2,2]` ont été estimés comme "bad"
+
+    
+- verticalement, sur les `r confusionnb[1,1]+confusionnb[2,1]` outcome estimés par le système comme "good", `r confusionnb[2,1]` sont en fait des outcome "bad",
+
+- verticalement, sur les `r confusionnb[1,2]+confusionnb[2,2]` outcome estimés par le système comme "bad", `r confusionnb[2,2]` sont en fait des outcome "good".
+
+#### Resultat de la prédiction
+```{r, echo=TRUE, warning = FALSE}
+
+kable(resultats.nb,booktabs= T,caption = "Resultats Naives bayes  ")  %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+
+
+Il est très rapide et très performant.
+
+## 6.5 Neural Networks
+
+Les réseaux neuronaux sont l'un des modèles d'apprentissage machine les plus fascinants car leur structure inspirée par le cerveau.
+
+Neural Network
+
+  method = 'nnet'
+
+Type: Classification, Regression
+
+Tuning parameters:
+
+   - size (#Hidden Units)
+   
+   - decay (Weight Decay)
+
+Required packages: nnet
+
+A model-specific variable importance metric is available.
+
+#### Fine-Tuning recherche des Hyperparameters avec Cross validation et grid search
+
+```{r,echo=TRUE,eval=TRUE, warning=FALSE, message=FALSE,results='hide',cache = TRUE}
+start_timenet = Sys.time()
+set.seed(400)
+ctrl <- trainControl(method="cv",number = 2, search = "grid")
+
+my.grid <- expand.grid(size = c(2,3,4), decay = c(0.2,0.5,0.8,1))
+
+model.nn1 <- caret::train(Creditability~.,
+                  data = ech,
+                  method = "nnet",tuneGrid = my.grid,trControl = ctrl)
+
+end_timenet = Sys.time()
+end_timenet - start_timenet
+```
+
+
+Voici le resultat de l'apprentissage :
+```{r,echo=TRUE, warning = FALSE, cache=TRUE}
+model.nn1
+```
+Nous avons une faible erreur d'apprentissage.
+
+Voici les paramètres choisis :
+```{r , echo=TRUE,cache=TRUE,eval=TRUE, cache=TRUE}
+cat("Best parameter pour size est :" , model.nn1$bestTune$size,"\n")
+cat("Best parameter pour decay  est :" , model.nn1$bestTune$decay,"\n")
+
+```
+
+
+
+```{r, eval=TRUE,echo=TRUE, warning = FALSE, cache=TRUE,, fig.align = 'center', fig.height = 3.5, fig.width = 5.5}
+plot(model.nn1)
+```
+
+Nous regardons quelle covariable influnce le plus le modèle.
+```{r,echo=TRUE, warning = FALSE, cache=TRUE}
+varImp(model.nn1)
+```
+
+
+```{r, eval=TRUE,echo=TRUE, warning = FALSE, cache=TRUE,, fig.align = 'center', fig.height = 3.5, fig.width = 5.5}
+plot(varImp(model.nn1))
+```
+Nous avons **detailed_occupation_recode7, detailed_occupation_recode11 et educ_levelHS-grad** qui influencent beaucoup le modèle.
+
+
+
+```{r, eval=TRUE,echo=TRUE, warning = FALSE, cache=TRUE,, fig.align = 'center', fig.height = 15.5, fig.width = 9.5}
+library(NeuralNetTools) #Neurone schéma
+library(neuralnet)
+library(nnet)# neuronalnetwork nnet
+plotnet(model.nn1, y_names = "outcome",pad_x = 0.8,pad_y = 1, alpha = 0.6,)
+```
+
+
+#### Apply the tree to test set
+
+```{r,echo=TRUE, warning = FALSE,cache = TRUE}
+
+predictions1 <- predict(model.nn1, test,type = 'raw')
+```
+
+
+Voici le resultat de la validation:
+```{r,echo=TRUE, warning = FALSE, cache=TRUE}
+postResample(predictions1, test$Creditability)
+caret::confusionMatrix(predictions1, test$Creditability)
+
+```
+Nous avons une faible erreur de validation et elle est équivalant à l'erreur d'apprentissage.
+
+
+#### Confusion Table
+
+```{r, eval=TRUE,,echo=TRUE, warning = FALSE}
+confusionnet<-table(predictions1, test$Creditability)
+nnet.acc <-(confusionnet[1,1] + confusionnet[2,2])/sum(confusionnet)
+nnet.recall<-confusionnet[1,1]/(confusionnet[1,1]+confusionnet[2,1])
+nnet.precision<- confusionnet[1,1]/(confusionnet[1,1]+confusionnet[1,2])
+nnet.fscore<- (2*confusionnet[1,1])/((2*confusionnet[1,1])+confusionnet[1,2]+confusionnet[2,1])
+resultats.nnet <- data.frame( 'Durée Execution'=c(end_timenet - start_timenet),Accuracy=c(nnet.acc),'Taux Erreur' = c(1-nnet.acc), Recall=c(nnet.recall), Precision=c(nnet.precision),F1score=c(nnet.fscore), row.names=c(" Neural Networks"))
+
+
+kable(confusionnet, booktabs= T, caption = "Confusion Table NNET") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
+
+
+```{r,echo=FALSE, eval=TRUE,warning = FALSE,cache = TRUE,results='hide'}
+confusionnet[2,2]
+confusionnet[1,1]
+confusionnet[2,1]
+confusionnet[1,2]
+
+``` 
+
+La matrice de confusion suivante se lit alors comme suit :
+
+- horizontalement, sur les `r confusionnet[1,1]+confusionnet[1,2]` données outcome "good" , `r confusionnet[1,1]`  ont été estimés par le système de classification comme "good" et `r confusionnet[1,2]` ont été estimés comme "bad" (faux-négatifs),
+
+- horizontalement, sur les `r confusionnet[2,1]+confusionnet[2,2]` données outcome "bad" , `r confusionnet[2,1]` ont été estimés comme "good" (faux-positifs) et `r confusionnet[2,2]` ont été estimés comme "bad"
+
+    
+- verticalement, sur les `r confusionnet[1,1]+confusionnet[2,1]` outcome estimés par le système comme "good", `r confusionnet[2,1]` sont en fait des outcome "bad",
+
+- verticalement, sur les `r confusionnet[1,2]+confusionnet[2,2]` outcome estimés par le système comme "bad", `r confusionnet[2,2]` sont en fait des outcome "good".
+
+#### Resultat de la prédiction
+
+```{r, eval=TRUE,echo=TRUE, warning = FALSE, cache=TRUE}
+
+kable(resultats.nnet,booktabs= T,caption = "Resultats Neuronal Network")  %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+
+
+# Conclusion
+
+Voici le resultat des differents algorithmes et le meilleur accuracy est l'algorithme CART ce qui est logique et le plus rapide est le Naives Bayes. Voici un graphe récapitulatif des résultats.
+
+```{r, echo = TRUE,eval=TRUE, cache=TRUE}
+library(ggplot2)
+all.acc <- cbind(glm.acc,nb.acc,nnet.acc,AUC_pred)
+
+barplot(all.acc, main="Résultats Acuracy",xlab="Modèles",ylab="Accuracy de 0 à 100% de prédiction",  col="purple",ylim=c(0,1),names = c("GLM", "NB","NNET","BAG"))
+
+
+all.res<-data.frame( Accuracy=c(glm.acc,nb.acc,nnet.acc,AUC_pred),'Taux Erreur' = c(1-glm.acc,1-nb.acc,1-nnet.acc,1-AUC_pred), 'Durée Execution'=c(end_timeglm1 - start_timeglm1,end_timenb - start_timenb,end_timenet - start_timenet,end_timebag - start_timebag),Recall=c(glm.recall,nb.recall,nnet.recall,"-"), Precision=c(glm.precision,nb.precision,nnet.precision,"-"),'F1-score'= c(glm.fscore,nb.fscore,nnet.fscore,"-") ,row.names=c("Logistic Regression","Naives Bayes","Neural Networks","Bagging CART"))
+
+
+```
+Voici un tableau récapitulatif des algorithmes.
+```{r, echo = FALSE,eval=TRUE, cache=TRUE}
+kable(all.res,booktabs= T,caption = "Resultats des 4 Algorithmes")  %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
